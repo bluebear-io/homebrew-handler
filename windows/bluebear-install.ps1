@@ -38,7 +38,7 @@ if (-not $InstallDir) {
 $BinDir = Join-Path $InstallDir "bin"
 
 # Version - will be replaced by CI/CD (e.g., 0.0.478 for PR, 1.2.3 for prod)
-$Version = "0.5.4"
+$Version = "0.5.5"
 
 # Detect PR version from API URL if not replaced by CI/CD
 if ($Version -eq "__VERSION__") {
@@ -844,42 +844,17 @@ function Install-BlueBear {
     $exeName = if ($Environment) { "bluebear-$Environment.exe" } else { "bluebear.exe" }
     $exeBaseName = if ($Environment) { "bluebear-$Environment" } else { "bluebear" }
 
+    # DEN-842: Run bluebear enable which handles daemon setup and history
+    # ingestion prompt. Do not pipe output so stdin is inherited for the
+    # interactive Y/n prompt in the Go binary.
     Write-Status "Setting up BlueBear daemon..."
     $bluebearExe = Join-Path $InstallDir $exeName
     try {
-        & $bluebearExe enable 2>&1 | ForEach-Object { Write-Detail $_ }
+        & $bluebearExe enable
         Write-Status "BlueBear daemon enabled and started" -Type "Success"
     } catch {
         Write-Status "Failed to set up daemon: $_" -Type "Warning"
         Write-Detail "You can manually start the daemon with: $exeBaseName enable"
-    }
-
-    # Ask user if they want to ingest existing history
-    Write-Host ""
-    Write-Host "Would you like to ingest existing Claude and Cursor history? [Y/n] " -NoNewline
-    $response = Read-Host
-    $response = $response.Trim().ToLower()
-
-    if ($response -eq "" -or $response -eq "y" -or $response -eq "yes") {
-        Write-Status "Starting history ingestion in background..."
-
-        # Run ingest-history in background for both clients
-        # Write script to temp file to avoid quoting/escaping issues with -Command
-        $tempScript = Join-Path $env:TEMP "bluebear-ingest-$([guid]::NewGuid().ToString('N').Substring(0,8)).ps1"
-        @"
-`$exe = '$bluebearExe'
-& `$exe ingest-history claude
-& `$exe ingest-history cursor
-Remove-Item -Path '$tempScript' -Force -ErrorAction SilentlyContinue
-"@ | Set-Content -Path $tempScript -Encoding UTF8
-
-        Start-Process powershell -ArgumentList "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", $tempScript -WindowStyle Hidden
-
-        Write-Status "History ingestion running in background" -Type "Success"
-    } else {
-        Write-Detail "Skipped. You can run later with:"
-        Write-Detail "  $exeBaseName ingest-history claude"
-        Write-Detail "  $exeBaseName ingest-history cursor"
     }
 
     Write-Host ""

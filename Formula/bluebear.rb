@@ -287,31 +287,31 @@ end
 class Bluebear < Formula
   desc "BlueBear - Secure AI coding agent governance for Claude, Codex, Copilot, and more"
   homepage "https://bluebearsecurity.io"
-  version "0.5.4"
+  version "0.5.5"
 
   API_BASE = ENV.fetch("BLUEDEN_API_URL", "https://api.bluebearsecurity.io")
 
   # Platform-specific configuration (macOS and Linux)
   if OS.mac?
     if Hardware::CPU.arm?
-      sha256 "bf04182e650ccb378a12dcabbe9063da797247e6f1be27b9ddc1c0c9f4b3f45d"
+      sha256 "afe96a9d8ce52aa74f7a7f98c9a16d1f9cb12594597e244ddaafbd4294857f32"
       platform_suffix = "macos-arm64"
     else
-      sha256 "81ce1edd8a8bb640a7ebce22fae8cb2078abb742716072d5c74d3ce88e966a7b"
+      sha256 "e0a92fa5966d898c540f95bcf1c6aeb0a2f4a1f5b4bb458b332603ab187f4dc4"
       platform_suffix = "macos-x86_64"
     end
   else
     if Hardware::CPU.arm?
-      sha256 "690f444440e216b90f7590567439a0744d85e02d755476beb02a3fdbe3584b27"
+      sha256 "1b64708ad9a7b7c0e2f8cbf9c01a42e3e68597263ce30bf8fe90b039b09fad98"
       platform_suffix = "linux-arm64"
     else
-      sha256 "28340d380e4eae76e39bd17c07b662287643c2b60b34a553ebc785b05e02aee1"
+      sha256 "5fbe7b5f45378b39e8a0c3ba8cfb39ef6a16c64ad62d4db71f7d453792b75fa8"
       platform_suffix = "linux-x86_64"
     end
   end
 
   # DEN-750: Single unified binary (Go build)
-  url "#{API_BASE}/api/v1/bff/download/bluebear/v0.5.4/#{platform_suffix}/bluebear-#{platform_suffix}.tar.gz",
+  url "#{API_BASE}/api/v1/bff/download/bluebear/v0.5.5/#{platform_suffix}/bluebear-#{platform_suffix}.tar.gz",
     using: BluebearOAuthDownloadStrategy
 
   def install
@@ -320,7 +320,14 @@ class Bluebear < Formula
     ohai "Installing BlueBear v#{version} for #{platform}"
 
     # Find the extracted binary
-    binary_path = Dir["bluebear-*"].find { |f| File.file?(f) && !f.end_with?('.tar.gz') }
+    # macOS archives contain BlueBear.app bundle; Linux archives contain raw binary
+    if Dir.exist?("BlueBear.app")
+      binary_path = "BlueBear.app/Contents/MacOS/bluebear"
+    elsif File.file?("bluebear")
+      binary_path = "bluebear"
+    else
+      binary_path = Dir["bluebear-*"].find { |f| File.file?(f) && !f.end_with?('.tar.gz') }
+    end
 
     if binary_path
       # Make executable and install

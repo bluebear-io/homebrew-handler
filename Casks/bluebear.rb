@@ -283,22 +283,28 @@ class BluebearCaskDownloadStrategy < CurlDownloadStrategy
 end
 
 cask "bluebear" do
-  version "0.5.4"
-  sha256 "bf04182e650ccb378a12dcabbe9063da797247e6f1be27b9ddc1c0c9f4b3f45d"
+  version "0.5.5"
+  sha256 "afe96a9d8ce52aa74f7a7f98c9a16d1f9cb12594597e244ddaafbd4294857f32"
 
-  url "https://api.bluebearsecurity.io/api/v1/bff/download/bluebear/v0.5.4/macos-arm64/bluebear-macos-arm64.tar.gz",
+  url "https://api.bluebearsecurity.io/api/v1/bff/download/bluebear/v0.5.5/macos-arm64/bluebear-macos-arm64.tar.gz",
       using: BluebearCaskDownloadStrategy
   name "BlueBear"
   desc "Secure AI coding agent governance for Claude, Codex, Copilot, and more"
   homepage "https://bluebearsecurity.io"
 
-  # Link the binary
-  binary "bluebear-macos-arm64", target: "#{BINARY_PREFIX}"
+  # Link the binary from inside the .app bundle
+  binary "BlueBear.app/Contents/MacOS/bluebear", target: "#{BINARY_PREFIX}"
 
   # Run bluebear enable after installation
   postflight do
     # Remove quarantine attribute to prevent Gatekeeper blocking
     system_command "xattr", args: ["-cr", staged_path.to_s], print_stderr: false
+
+    # Register .app bundle with Launch Services so macOS can find its icon
+    # for Login Items & Extensions and "App Background Activity" notifications
+    system_command "/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister",
+      args: ["-f", "#{staged_path}/BlueBear.app"],
+      print_stderr: false
 
     # Check if config has API endpoint (may be missing if download was cached)
     require 'etc'
@@ -390,43 +396,23 @@ cask "bluebear" do
       opoo "Could not install shell completions: #{e.message}"
     end
 
-    # Run bluebear enable to set up daemon
+    # Run bluebear enable to set up daemon (and prompt for history ingestion).
+    # DEN-842: Use Ruby's system() instead of system_command so that stdin is
+    # inherited and the Go binary can prompt the user interactively.
     ohai "Running #{BINARY_PREFIX} enable..."
-    system_command "#{HOMEBREW_PREFIX}/bin/#{BINARY_PREFIX}", args: ["enable"]
-
-    # Ask user if they want to ingest existing history
-    puts ""
-    print "Would you like to ingest existing Claude and Cursor history? [Y/n] "
-    $stdout.flush
-    response = $stdin.gets&.strip&.downcase || "y"
-
-    if response.empty? || response == "y" || response == "yes"
-      ohai "Starting history ingestion in background..."
-
-      # Run ingest-history in background for both clients
-      # Go binary handles its own logging
-      pid = spawn(
-        "#{HOMEBREW_PREFIX}/bin/#{BINARY_PREFIX}", "ingest-history", "claude",
-        [:out, :err] => "/dev/null"
-      )
-      Process.detach(pid)
-
-      pid = spawn(
-        "#{HOMEBREW_PREFIX}/bin/#{BINARY_PREFIX}", "ingest-history", "cursor",
-        [:out, :err] => "/dev/null"
-      )
-      Process.detach(pid)
-
-      puts "  History ingestion running in background."
-    else
-      puts "  Skipped. You can run later with: '#{BINARY_PREFIX} ingest-history claude' or '#{BINARY_PREFIX} ingest-history cursor'"
-    end
+    system("#{HOMEBREW_PREFIX}/bin/#{BINARY_PREFIX}", "enable")
   end
 
   # Run bluebear disable before removal - THIS IS WHY WE USE CASK!
+  # All operations wrapped in begin/rescue to prevent upgrade failures from leaving
+  # orphaned .upgrading directories when any step fails
   uninstall_preflight do
-    ohai "Running #{BINARY_PREFIX} disable..."
-    system_command "#{HOMEBREW_PREFIX}/bin/#{BINARY_PREFIX}", args: ["disable"]
+    begin
+      ohai "Running #{BINARY_PREFIX} disable..."
+      system_command "#{HOMEBREW_PREFIX}/bin/#{BINARY_PREFIX}", args: ["disable"]
+    rescue => e
+      opoo "Could not disable daemon: #{e.message}"
+    end
 
     # Remove shell completions
     ohai "Removing shell completions..."
@@ -444,14 +430,18 @@ cask "bluebear" do
 
     # PR environments: always clean up config (ephemeral, for testing)
     # Production: keep config for seamless upgrades - use 'brew uninstall --zap' for full cleanup
-    unless BLUEBEAR_ENVIRONMENT.empty?
-      require 'etc'
-      real_home = Etc.getpwuid.dir
-      config_dir = "#{real_home}/.bluebear#{BLUEBEAR_ENV_SUFFIX}"
-      if Dir.exist?(config_dir)
-        ohai "Removing PR environment config: #{config_dir}"
-        FileUtils.rm_rf(config_dir)
+    begin
+      unless BLUEBEAR_ENVIRONMENT.empty?
+        require 'etc'
+        real_home = Etc.getpwuid.dir
+        config_dir = "#{real_home}/.bluebear#{BLUEBEAR_ENV_SUFFIX}"
+        if Dir.exist?(config_dir)
+          ohai "Removing PR environment config: #{config_dir}"
+          FileUtils.rm_rf(config_dir)
+        end
       end
+    rescue => e
+      opoo "Could not remove config directory: #{e.message}"
     end
   end
 
