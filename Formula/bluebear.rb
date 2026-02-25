@@ -287,31 +287,31 @@ end
 class Bluebear < Formula
   desc "BlueBear - Secure AI coding agent governance for Claude, Codex, Copilot, and more"
   homepage "https://bluebearsecurity.io"
-  version "0.5.7"
+  version "0.5.8"
 
   API_BASE = ENV.fetch("BLUEDEN_API_URL", "https://api.bluebearsecurity.io")
 
   # Platform-specific configuration (macOS and Linux)
   if OS.mac?
     if Hardware::CPU.arm?
-      sha256 "d1ba924ed62ae42d1332e3bcf8fc2fcc05f2103a0a46c3eb74f9ea695bd954d9"
+      sha256 "abec2ce3a36491a01582025e0b696d5be098f96239866705f2425e2369895084"
       platform_suffix = "macos-arm64"
     else
-      sha256 "fd9937ae0cb8847cf6d6a7cfee413e7d0d92107b640838122ced78b13cecfeab"
+      sha256 "c2dd74941e9eeb938296a1e455e41fc50556d65da935ac5198bac291248288c5"
       platform_suffix = "macos-x86_64"
     end
   else
     if Hardware::CPU.arm?
-      sha256 "43c81ae411fc16099362cf21842708934edb9a3e5def3471ee84922822fb50d7"
+      sha256 "c5f152b45ff53cf536cca945597789ee6bc9c223b692f3ab271bf395ab66d52a"
       platform_suffix = "linux-arm64"
     else
-      sha256 "5fc1a578f11fa3e69a61f245011c4a02940d6df50167b9140de1390448aafe05"
+      sha256 "e11f07fc57df37d8696ee4f4a73518b7946e571da720ae3139f137bf0c378b5e"
       platform_suffix = "linux-x86_64"
     end
   end
 
   # DEN-750: Single unified binary (Go build)
-  url "#{API_BASE}/api/v1/bff/download/bluebear/v0.5.7/#{platform_suffix}/bluebear-#{platform_suffix}.tar.gz",
+  url "#{API_BASE}/api/v1/bff/download/bluebear/v0.5.8/#{platform_suffix}/bluebear-#{platform_suffix}.tar.gz",
     using: BluebearOAuthDownloadStrategy
 
   def install
