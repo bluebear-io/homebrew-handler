@@ -1,5 +1,6 @@
 # Homebrew Cask for BlueBear CLI - AI Coding Agent Governance
 # DEN-750: Single unified Go binary with proper uninstall hooks
+# DEN-1017: Simplified installer — OAuth moved to Go binary (`bluebear enable`)
 #
 # Casks provide uninstall stanzas that formulas lack, enabling proper cleanup
 # when running `brew uninstall --cask bluebear`.
@@ -10,8 +11,7 @@
 #
 # Usage:
 #   bluebear status              # Check daemon status
-#   bluebear claude enable       # Enable Claude Code hooks
-#   bluebear cursor enable       # Enable Cursor hooks
+#   bluebear enable              # Enable daemon (runs OAuth if needed)
 
 require "json"
 require "open3"
@@ -22,272 +22,21 @@ BLUEBEAR_ENVIRONMENT = ""
 BLUEBEAR_ENV_SUFFIX = BLUEBEAR_ENVIRONMENT.empty? ? "" : "-#{BLUEBEAR_ENVIRONMENT}"
 BINARY_PREFIX = "bluebear"
 
-# Custom download strategy for authenticated downloads with OAuth device flow
-class BluebearCaskDownloadStrategy < CurlDownloadStrategy
-  def initialize(url, name, version, **meta)
-    @api_base = ENV.fetch("BLUEDEN_API_URL", "https://api.bluebearsecurity.io")
-    @console_url = ENV.fetch("BLUEDEN_CONSOLE_URL", "https://app.bluebearsecurity.io")
-    @config_dir = File.expand_path("~/.bluebear#{BLUEBEAR_ENV_SUFFIX}")
-    super
-  end
-
-  def _fetch(url:, resolved_url:, timeout:)
-    FileUtils.mkdir_p(@config_dir)
-
-    auth_token = nil
-    auth_type = nil
-
-    # Check for existing API key (upgrades)
-    @existing_config = load_existing_config
-    if @existing_config && @existing_config["developer_api_key"] && !@existing_config["developer_api_key"].empty?
-      auth_token = @existing_config["developer_api_key"]
-      auth_type = 'api_key'
-      ohai "Using existing API key for download (upgrade mode)"
-    end
-
-    # If no existing API key, run OAuth device flow
-    unless auth_token
-      ohai "BlueBear OAuth Authentication Required"
-      puts ""
-
-      auth_token = authenticate_device_flow
-      auth_type = 'jwt'
-
-      unless auth_token
-        raise CurlDownloadStrategyError, <<~EOS
-          BlueBear authentication failed or timed out.
-
-          Please try again, or manually configure:
-            1. Visit: #{@console_url}/settings
-            2. Copy your API key
-            3. After install, run: #{BINARY_PREFIX} configure --api-key YOUR_KEY
-        EOS
-      end
-    end
-
-    ohai "Downloading BlueBear binary..."
-    temporary_path.dirname.mkpath
-
-    curl_args = [
-      "-fL",
-      "-H", "Authorization: Bearer #{auth_token}",
-      "-o", temporary_path.to_s,
-      url
-    ]
-
-    system_command!("curl", args: curl_args, verbose: verbose?)
-
-    unless temporary_path.exist?
-      raise CurlDownloadStrategyError, "Downloaded file not found"
-    end
-
-    downloaded_size = temporary_path.size
-    ohai "Downloaded #{downloaded_size} bytes"
-
-    if downloaded_size < 1000
-      raise CurlDownloadStrategyError, "Download failed - file too small (#{downloaded_size} bytes)"
-    end
-
-    if auth_type == 'jwt'
-      setup_api_key(auth_token)
-    else
-      ohai "Preserving existing API key configuration"
-    end
-  end
-
-  private
-
-  def load_existing_config
-    config_file = File.join(@config_dir, "config")
-    return nil unless File.exist?(config_file)
-
-    begin
-      JSON.parse(File.read(config_file))
-    rescue JSON::ParserError
-      nil
-    end
-  end
-
-  def authenticate_device_flow
-    ohai "Starting device authorization..."
-
-    stdout, status = Open3.capture2(
-      "curl", "-s", "-X", "POST",
-      "#{@api_base}/api/v1/bff/auth/device",
-      "-H", "Content-Type: application/json"
-    )
-
-    return nil unless status.success?
-
-    begin
-      response = JSON.parse(stdout)
-    rescue JSON::ParserError
-      opoo "Invalid response from authentication server"
-      return nil
-    end
-
-    unless response["success"]
-      opoo "Authentication initiation failed: #{response['error']}"
-      return nil
-    end
-
-    data = response["data"] || {}
-    device_code = data["device_code"]
-    user_code = data["user_code"]
-    verification_uri = data["verification_uri"] || "#{@console_url}/device"
-    verification_uri_complete = data["verification_uri_complete"]
-    expires_in = data["expires_in"] || 300
-
-    browser_url = verification_uri_complete || "#{@console_url}/device?code=#{user_code}"
-
-    # Open browser on macOS
-    system "open", browser_url, [:out, :err] => "/dev/null"
-
-    $stderr.puts ""
-    $stderr.puts "  Authenticating... browser opened automatically."
-    $stderr.puts ""
-
-    poll_interval = data["interval"] || 5
-    max_poll_time = [expires_in, 300].min
-    start_time = Time.now
-    detailed_message_shown = false
-
-    loop do
-      elapsed = Time.now - start_time
-      break if elapsed >= max_poll_time
-
-      if elapsed >= 15 && !detailed_message_shown
-        detailed_message_shown = true
-        $stderr.puts ""
-        $stderr.puts "  \e[33mIf browser didn't open automatically:\e[0m"
-        $stderr.puts ""
-        $stderr.puts "  1. Open this URL: \e[32m#{browser_url}\e[0m"
-        $stderr.puts ""
-        $stderr.puts "  2. If prompted, enter code: \e[1m\e[32m#{user_code}\e[0m"
-        $stderr.puts ""
-      end
-
-      sleep poll_interval
-
-      token_stdout, token_status = Open3.capture2(
-        "curl", "-s", "-X", "POST",
-        "#{@api_base}/api/v1/bff/auth/token",
-        "-H", "Content-Type: application/json",
-        "-d", JSON.generate({ device_code: device_code })
-      )
-
-      next unless token_status.success?
-
-      begin
-        token_response = JSON.parse(token_stdout)
-      rescue JSON::ParserError
-        next
-      end
-
-      token_data = token_response["data"] || {}
-      if token_response["success"] && token_data["access_token"]
-        puts ""
-        ohai "Authentication successful!"
-        return token_data["access_token"]
-      end
-
-      error = token_response["error"]
-      case error
-      when "authorization_pending"
-        print "."
-        $stdout.flush
-      when "slow_down"
-        poll_interval += 1
-        print "."
-        $stdout.flush
-      when "expired_token"
-        puts ""
-        opoo "Code expired. Please restart installation."
-        return nil
-      when "access_denied"
-        puts ""
-        opoo "Authorization denied."
-        return nil
-      else
-        print "."
-        $stdout.flush
-      end
-    end
-
-    puts ""
-    opoo "Authentication timed out"
-    nil
-  end
-
-  def setup_api_key(jwt_token)
-    ohai "Setting up API key..."
-
-    hostname = `hostname`.strip rescue "unknown"
-    platform = "macOS"
-    arch = Hardware::CPU.arm? ? "ARM64" : "x86_64"
-
-    request_body = {
-      cli_token: jwt_token,
-      device_name: "#{hostname} (#{platform} #{arch})",
-      device_hostname: hostname,
-      device_platform: platform,
-      device_arch: arch,
-      force_new: true
-    }
-
-    stdout, status = Open3.capture2(
-      "curl", "-s", "-X", "POST",
-      "#{@api_base}/api/v1/bff/developer/api-key",
-      "-H", "Content-Type: application/json",
-      "-d", JSON.generate(request_body)
-    )
-
-    unless status.success?
-      opoo "Could not set up API key automatically. Configure later with: #{BINARY_PREFIX} configure"
-      return
-    end
-
-    begin
-      response = JSON.parse(stdout)
-    rescue JSON::ParserError
-      opoo "Invalid response when setting up API key"
-      return
-    end
-
-    if response["success"] && response["data"]
-      data = response["data"]
-      api_key = data["api_key"]
-      api_endpoint = data["api_endpoint"] || @api_base
-
-      if api_key
-        config_file = File.join(@config_dir, "config")
-        config = File.exist?(config_file) ? JSON.parse(File.read(config_file)) : {}
-        config["api_endpoint"] = api_endpoint
-        config["bff_endpoint"] = @api_base
-        config["developer_api_key"] = api_key
-        config["configured_at"] = Time.now.utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-        File.write(config_file, JSON.pretty_generate(config))
-        File.chmod(0600, config_file)
-
-        ohai "New API key created and saved"
-      else
-        key_prefix = data["key_prefix"]
-        opoo "An existing API key was found for your account (#{key_prefix}...)"
-      end
-    else
-      error_msg = response["error"] || response["message"] || "Unknown error"
-      opoo "API key creation failed: #{error_msg}"
-    end
-  end
-end
-
 cask "bluebear" do
-  version "0.6.0"
-  sha256 "d34f38c8029875ca3336b50ca63e5a0b552f01b030036773bdbcbb13d04544bd"
+  version "0.6.1"
 
-  url "https://api.bluebearsecurity.io/api/v1/bff/download/bluebear/v0.6.0/macos-arm64/bluebear-macos-arm64.tar.gz",
-      using: BluebearCaskDownloadStrategy
+  # DEN-1017: Distribution source depends on environment.
+  # Production (BLUEBEAR_ENVIRONMENT empty): GitHub Release assets (public, no auth).
+  # Dev/PR: GitHub Actions artifacts (zip-wrapped, requires HOMEBREW_GITHUB_API_TOKEN).
+  if BLUEBEAR_ENVIRONMENT.empty?
+    sha256 "bc2471bdad58e12f90d2fa965fe18468e7faee981cfec21cd852d5c03f94ead0"
+    url "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.1/bluebear-macos-arm64.tar.gz"
+  else
+    sha256 :no_check
+    url "",
+        header: "Authorization: Bearer #{ENV.fetch("HOMEBREW_GITHUB_API_TOKEN")}"
+  end
+
   name "BlueBear"
   desc "Secure AI coding agent governance for Claude, Codex, Copilot, and more"
   homepage "https://bluebearsecurity.io"
@@ -295,7 +44,7 @@ cask "bluebear" do
   # Link the binary from inside the .app bundle
   binary "BlueBear.app/Contents/MacOS/bluebear", target: "#{BINARY_PREFIX}"
 
-  # Run bluebear enable after installation
+  # DEN-1017: Simplified postflight — all auth logic is now in the Go binary.
   postflight do
     # Remove quarantine attribute to prevent Gatekeeper blocking
     system_command "xattr", args: ["-cr", staged_path.to_s], print_stderr: false
@@ -305,55 +54,6 @@ cask "bluebear" do
     system_command "/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister",
       args: ["-f", "#{staged_path}/BlueBear.app"],
       print_stderr: false
-
-    # Check if config has API endpoint (may be missing if download was cached)
-    require 'etc'
-    real_home = Etc.getpwuid.dir
-    config_dir = "#{real_home}/.bluebear#{BLUEBEAR_ENV_SUFFIX}"
-    config_path = "#{config_dir}/config"
-
-    config_valid = false
-    begin
-      if File.exist?(config_path)
-        config = JSON.parse(File.read(config_path))
-        config_valid = config["api_endpoint"] && !config["api_endpoint"].empty? &&
-                       config["developer_api_key"] && !config["developer_api_key"].empty?
-      end
-    rescue
-      config_valid = false
-    end
-
-    unless config_valid
-      # Delete cached download to force fresh OAuth on next install
-      cache_dir = "#{real_home}/Library/Caches/Homebrew/downloads"
-      Dir.glob("#{cache_dir}/*bluebear*").each { |f| FileUtils.rm_f(f) }
-
-      raise CaskError, <<~EOS
-        Authentication required but download was cached.
-
-        The cached download has been cleared. Please reinstall:
-          brew reinstall --cask bluebear
-      EOS
-    end
-
-    # Save installation metadata to config
-    FileUtils.mkdir_p(config_dir)
-
-    begin
-      # Remove Apple extended attributes that may block writes
-      system_command "xattr", args: ["-c", config_path], print_stderr: false if File.exist?(config_path)
-
-      config = File.exist?(config_path) ? JSON.parse(File.read(config_path)) : {}
-      config["version"] = version.to_s
-      config["platform"] = "macos-arm64"
-      config["install_type"] = "cask"
-      config["installed_at"] = Time.now.utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-      File.write(config_path, JSON.pretty_generate(config))
-      File.chmod(0600, config_path)
-    rescue => e
-      opoo "Could not update config metadata: #{e.message}"
-    end
 
     # Generate and install shell completions
     # Note: Cobra generates completions for "bluebear" but we may install as a different name
@@ -371,7 +71,6 @@ cask "bluebear" do
       # Generate zsh completion and replace command name
       zsh_output, zsh_status = Open3.capture2("#{HOMEBREW_PREFIX}/bin/#{BINARY_PREFIX}", "completion", "zsh")
       if zsh_status.success?
-        # Replace 'bluebear' with actual binary name for PR environments
         zsh_output = zsh_output.gsub("bluebear", BINARY_PREFIX)
         File.write("#{zsh_completions_dir}/_#{BINARY_PREFIX}", zsh_output)
         ohai "Installed zsh completion"
@@ -396,7 +95,7 @@ cask "bluebear" do
       opoo "Could not install shell completions: #{e.message}"
     end
 
-    # Run bluebear enable to set up daemon (and prompt for history ingestion).
+    # DEN-1017: The Go binary handles all auth — cask just calls `enable`.
     # DEN-842: Use Ruby's system() instead of system_command so that stdin is
     # inherited and the Go binary can prompt the user interactively.
     ohai "Running #{BINARY_PREFIX} enable..."

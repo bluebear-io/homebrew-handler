@@ -1,9 +1,10 @@
 # BlueBear Windows Installer
-# DEN-275: PowerShell installer script with OAuth device flow authentication
+# DEN-275: PowerShell installer script
 # DEN-750: Updated for single binary architecture (unified handler)
+# DEN-1017: Simplified installer — OAuth moved to Go binary (`bluebear enable`)
 #
 # Usage:
-#   # Interactive install (opens browser for authentication)
+#   # Interactive install (Go binary opens browser for authentication)
 #   irm https://install.bluebearsecurity.io/windows | iex
 #
 #   # Or run directly
@@ -18,6 +19,8 @@
 param(
     [string]$ApiUrl = $env:BLUEDEN_API_URL,
     [string]$ConsoleUrl = $env:BLUEDEN_CONSOLE_URL,
+    [string]$DownloadUrl = $env:BLUEBEAR_DOWNLOAD_URL,
+    [string]$ArtifactId = $env:BLUEBEAR_ARTIFACT_ID,
     [string]$InstallDir = $null,
     [switch]$NoAddToPath,
     [switch]$Force,
@@ -30,6 +33,9 @@ $ProgressPreference = "SilentlyContinue"  # Speeds up Invoke-WebRequest
 # Default URLs
 if (-not $ApiUrl) { $ApiUrl = "https://api.bluebearsecurity.io" }
 if (-not $ConsoleUrl) { $ConsoleUrl = "https://app.bluebearsecurity.io" }
+# DEN-1017: Download URL defaults to GitHub Release URL for prod.
+# Dev/PR uses artifact download via gh CLI (when ArtifactId is set).
+if (-not $DownloadUrl) { $DownloadUrl = "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.1" }
 
 # Installation paths
 if (-not $InstallDir) {
@@ -38,7 +44,7 @@ if (-not $InstallDir) {
 $BinDir = Join-Path $InstallDir "bin"
 
 # Version - will be replaced by CI/CD (e.g., 0.0.478 for PR, 1.2.3 for prod)
-$Version = "0.6.0"
+$Version = "0.6.1"
 
 # Detect PR version from API URL if not replaced by CI/CD
 if ($Version -eq "__VERSION__") {
@@ -176,236 +182,20 @@ function Write-ConfigFile {
     [System.IO.File]::WriteAllText($FilePath, $Content, [System.Text.UTF8Encoding]::new($false))
 }
 
-# Note: Credential Manager functions removed in favor of config file storage
-# The developer_api_key is now stored in ~/.bluebear/config file
-# Windows user profile permissions provide adequate protection
+# Note: Config management functions (Test-ExistingConfig, New-ApiKey) removed in DEN-1017.
+# The Go binary handles all config detection and credential setup via `bluebear enable`.
 
-function Test-ExistingConfig {
-    # Check for existing configuration (API key and endpoint in config file)
-    if (Test-Path $ConfigFile) {
-        try {
-            $config = Get-Content $ConfigFile -Raw | ConvertFrom-Json
-            if ($config.api_endpoint -and $config.developer_api_key) {
-                return $config
-            }
-        } catch {
-            return $null
-        }
-    }
-    return $null
-}
-
-function Start-DeviceAuth {
-    Write-Status "Starting device authorization..."
-
-    try {
-        $response = Invoke-RestMethod -Uri "$ApiUrl/api/v1/bff/auth/device" `
-            -Method Post `
-            -ContentType "application/json" `
-            -ErrorAction Stop
-
-        if (-not $response.success) {
-            Write-Status "Authentication initiation failed: $($response.error)" -Type "Error"
-            return $null
-        }
-
-        return $response.data
-    } catch {
-        Write-Status "Failed to start device authorization: $_" -Type "Error"
-        return $null
-    }
-}
-
-function Wait-ForAuth {
-    param(
-        [string]$DeviceCode,
-        [string]$UserCode,
-        [string]$VerificationUri,
-        [int]$ExpiresIn = 300,
-        [int]$Interval = 5
-    )
-
-    $browserUrl = "$ConsoleUrl/device?code=$UserCode"
-
-    # Try to open browser
-    Write-Host ""
-    try {
-        Start-Process $browserUrl
-        Write-Host "    " -NoNewline
-        Write-Host "Authenticating... browser opened automatically." -ForegroundColor Green
-    } catch {
-        Write-Host "    " -NoNewline
-        Write-Host "Authenticating... please open browser manually." -ForegroundColor Yellow
-    }
-    Write-Host ""
-
-    $startTime = Get-Date
-    $detailedShown = $false
-    $pollInterval = $Interval
-
-    while (((Get-Date) - $startTime).TotalSeconds -lt $ExpiresIn) {
-        $elapsed = ((Get-Date) - $startTime).TotalSeconds
-
-        # Show detailed instructions after 15 seconds
-        if ($elapsed -ge 15 -and -not $detailedShown) {
-            $detailedShown = $true
-            Write-Host ""
-            Write-Host "    " -NoNewline
-            Write-Host "If browser didn't open automatically:" -ForegroundColor Yellow
-            Write-Host ""
-            Write-Host "    1. Open this URL: " -NoNewline
-            Write-Host $browserUrl -ForegroundColor Green
-            Write-Host ""
-            Write-Host "    2. If prompted, enter code: " -NoNewline
-            Write-Host $UserCode -ForegroundColor Green -BackgroundColor DarkGray
-            Write-Host ""
-            Write-Host "    Code expires in $([math]::Floor($ExpiresIn / 60)) minutes"
-            Write-Host ""
-        }
-
-        Start-Sleep -Seconds $pollInterval
-
-        try {
-            $body = @{ device_code = $DeviceCode } | ConvertTo-Json
-            $tokenResponse = Invoke-RestMethod -Uri "$ApiUrl/api/v1/bff/auth/token" `
-                -Method Post `
-                -ContentType "application/json" `
-                -Body $body `
-                -ErrorAction Stop
-
-            if ($tokenResponse.success -and $tokenResponse.data.access_token) {
-                Write-Host ""
-                Write-Status "Authentication successful!" -Type "Success"
-                return $tokenResponse.data.access_token
-            }
-
-            switch ($tokenResponse.error) {
-                "authorization_pending" {
-                    Write-Host "." -NoNewline
-                }
-                "slow_down" {
-                    $pollInterval++
-                    Write-Host "." -NoNewline
-                }
-                "expired_token" {
-                    Write-Host ""
-                    Write-Status "Code expired. Please restart installation." -Type "Warning"
-                    return $null
-                }
-                "access_denied" {
-                    Write-Host ""
-                    Write-Status "Authorization denied." -Type "Warning"
-                    return $null
-                }
-                default {
-                    Write-Host "." -NoNewline
-                }
-            }
-        } catch {
-            Write-Host "." -NoNewline
-        }
-    }
-
-    Write-Host ""
-    Write-Status "Authentication timed out" -Type "Warning"
-    return $null
-}
-
-function New-ApiKey {
-    param([string]$JwtToken)
-
-    Write-Status "Setting up API key..."
-
-    $hostname = $env:COMPUTERNAME
-    $platform = "Windows"
-    $arch = if ([Environment]::Is64BitOperatingSystem) { "x86_64" } else { "x86" }
-
-    $body = @{
-        cli_token = $JwtToken
-        device_name = "$hostname ($platform $arch)"
-        device_hostname = $hostname
-        device_platform = $platform
-        device_arch = $arch
-        force_new = $true
-    } | ConvertTo-Json
-
-    try {
-        $response = Invoke-RestMethod -Uri "$ApiUrl/api/v1/bff/developer/api-key" `
-            -Method Post `
-            -ContentType "application/json" `
-            -Body $body `
-            -ErrorAction Stop
-
-        if ($response.success -and $response.data) {
-            $apiKey = $response.data.api_key
-            $apiEndpoint = $response.data.api_endpoint
-            if (-not $apiEndpoint) { $apiEndpoint = $ApiUrl }
-
-            if ($apiKey) {
-                # Create config directory
-                if (-not (Test-Path $ConfigDir)) {
-                    New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null
-                }
-
-                # Save config WITH the API key (stored in config file)
-                # Windows user profile permissions protect the file adequately
-                # Include console_url for PR environments where it differs from production
-                $config = @{
-                    api_endpoint = $apiEndpoint
-                    console_url = $ConsoleUrl
-                    developer_api_key = $apiKey
-                    monitor_poll_interval = 1.0
-                    configured_at = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
-                }
-
-                # Write config file safely (handles permission issues)
-                $jsonContent = $config | ConvertTo-Json
-                Write-ConfigFile -FilePath $ConfigFile -Content $jsonContent
-
-                # Set file permissions (mark as hidden)
-                Set-ConfigFilePermissions -FilePath $ConfigFile | Out-Null
-
-                Write-Status "New API key created and saved" -Type "Success"
-                Write-Detail "Config file: $ConfigFile"
-                Write-Detail "Endpoint: $apiEndpoint"
-                return $true
-            } else {
-                $keyPrefix = $response.data.key_prefix
-                Write-Status "An existing API key was found ($keyPrefix...)" -Type "Warning"
-                Write-Detail "For security, the full key is only shown at creation time."
-                Write-Detail "Get your key from: $ConsoleUrl/admin/devices"
-                return $false
-            }
-        } else {
-            $errorMsg = $response.error
-            if (-not $errorMsg) { $errorMsg = "Unknown error" }
-            Write-Status "API key creation failed: $errorMsg" -Type "Error"
-            Write-Detail "Configure later with: bluebear configure"
-            return $false
-        }
-    } catch {
-        Write-Status "Could not set up API key: $_" -Type "Warning"
-        Write-Detail "Configure later with: bluebear configure"
-        return $false
-    }
-}
+# Note: OAuth device flow functions (Start-DeviceAuth, Wait-ForAuth, New-ApiKey) removed in DEN-1017.
+# All authentication is now handled by the Go binary (`bluebear enable`).
 
 function Get-BlueBearBinary {
     # DEN-750: Downloads the single unified BlueBear binary
-    # Downloads from: bluebear/v{version}/windows-x86_64/bluebear-windows-x86_64.exe.zip
-    param(
-        [string]$JwtToken
-    )
+    # DEN-1017: Prod uses GitHub Release assets (public). Dev/PR uses gh CLI for artifact download.
 
     $platform = "windows-x86_64"
     $binaryName = "bluebear-$platform.exe"
     $zipName = "$binaryName.zip"
     $checksumName = "$zipName.sha256"
-
-    # Handle "latest" version specially - don't prefix with "v"
-    $versionPath = if ($Version -eq "latest") { "latest" } else { "v$Version" }
-    $downloadUrl = "$ApiUrl/api/v1/bff/download/bluebear/$versionPath/$platform/$zipName"
-    $checksumUrl = "$ApiUrl/api/v1/bff/download/bluebear/$versionPath/$platform/$checksumName"
     $zipPath = Join-Path $env:TEMP $zipName
     $checksumPath = Join-Path $env:TEMP $checksumName
     $extractPath = Join-Path $env:TEMP "bluebear-extract"
@@ -413,42 +203,70 @@ function Get-BlueBearBinary {
     Write-Status "Downloading BlueBear..."
 
     try {
-        $headers = @{ "Authorization" = "Bearer $JwtToken" }
+        if ($ArtifactId) {
+            # Dev/PR: download artifact via gh CLI (requires auth)
+            Write-Detail "Using GitHub Actions artifact: $ArtifactId"
+            $artifactZipPath = Join-Path $env:TEMP "artifact-$ArtifactId.zip"
+            gh api "repos/Blue-Bear-Security/blueden/actions/artifacts/$ArtifactId/zip" --output $artifactZipPath
+            if (-not (Test-Path $artifactZipPath) -or (Get-Item $artifactZipPath).Length -lt 1000) {
+                throw "Failed to download artifact $ArtifactId via gh CLI"
+            }
+            # Artifact is zip-wrapped: outer zip contains the .exe.zip
+            $artifactExtractPath = Join-Path $env:TEMP "artifact-extract"
+            if (Test-Path $artifactExtractPath) { Remove-Item -Path $artifactExtractPath -Recurse -Force }
+            Expand-Archive -Path $artifactZipPath -DestinationPath $artifactExtractPath -Force
+            # Find the .exe.zip inside the artifact
+            $innerZip = Get-ChildItem -Path $artifactExtractPath -Filter "*.zip" -Recurse | Select-Object -First 1
+            if ($innerZip) {
+                Copy-Item -Path $innerZip.FullName -Destination $zipPath -Force
+            } else {
+                # Artifact may contain the exe directly
+                Copy-Item -Path "$artifactExtractPath\*" -Destination $env:TEMP -Force
+                if (-not (Test-Path $zipPath)) { throw "Could not find binary zip inside artifact" }
+            }
+            Remove-Item -Path $artifactZipPath -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path $artifactExtractPath -Recurse -Force -ErrorAction SilentlyContinue
+        } else {
+            # Prod: direct download from GitHub Release URL
+            $binaryDownloadUrl = "$DownloadUrl/$zipName"
+            $checksumDownloadUrl = "$DownloadUrl/$checksumName"
 
-        # Download the binary zip
-        Invoke-WebRequest -Uri $downloadUrl `
-            -OutFile $zipPath `
-            -Headers $headers `
-            -ErrorAction Stop
+            Invoke-WebRequest -Uri $binaryDownloadUrl `
+                -OutFile $zipPath `
+                -ErrorAction Stop
+        }
 
         if ((Get-Item $zipPath).Length -lt 1000) {
             throw "Downloaded file too small"
         }
 
-        # Download and verify SHA256 checksum
-        try {
-            Invoke-WebRequest -Uri $checksumUrl `
-                -OutFile $checksumPath `
-                -Headers $headers `
-                -ErrorAction Stop
+        # Download and verify SHA256 checksum (prod only, not for artifact downloads)
+        if (-not $ArtifactId) {
+            try {
+                Invoke-WebRequest -Uri $checksumDownloadUrl `
+                    -OutFile $checksumPath `
+                    -ErrorAction Stop
 
-            # Read expected checksum (format: "hash  filename" or just "hash")
-            $expectedChecksum = (Get-Content $checksumPath -Raw).Trim().Split()[0].ToLower()
+                # Read expected checksum (format: "hash  filename" or just "hash")
+                $expectedChecksum = (Get-Content $checksumPath -Raw).Trim().Split()[0].ToLower()
 
-            # Calculate actual checksum
-            $actualChecksum = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLower()
+                # Calculate actual checksum
+                $actualChecksum = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLower()
 
-            if ($expectedChecksum -ne $actualChecksum) {
-                Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
+                if ($expectedChecksum -ne $actualChecksum) {
+                    Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
+                    Remove-Item -Path $checksumPath -Force -ErrorAction SilentlyContinue
+                    throw "SHA256 checksum verification failed! Expected: $expectedChecksum, Got: $actualChecksum. The download may have been tampered with."
+                }
+
+                Write-Detail "SHA256 checksum verified"
                 Remove-Item -Path $checksumPath -Force -ErrorAction SilentlyContinue
-                throw "SHA256 checksum verification failed! Expected: $expectedChecksum, Got: $actualChecksum. The download may have been tampered with."
+            } catch [System.Net.WebException] {
+                # Checksum file unavailable — fail loudly to prevent installing an unverified binary.
+                # An attacker who blocks the .sha256 file while serving a malicious binary would
+                # otherwise bypass verification silently.
+                throw "SHA256 checksum file could not be downloaded from $checksumDownloadUrl. Installation aborted. If this is expected, verify your network connectivity and try again."
             }
-
-            Write-Detail "SHA256 checksum verified"
-            Remove-Item -Path $checksumPath -Force -ErrorAction SilentlyContinue
-        } catch [System.Net.WebException] {
-            # Checksum file not available - warn but continue (for backwards compatibility)
-            Write-Status "Warning: SHA256 checksum not available for verification" -Type "Warning"
         }
 
         # Extract zip
@@ -736,87 +554,20 @@ function Install-BlueBear {
     Write-Host "=========================" -ForegroundColor Cyan
     Write-Host ""
 
-    # Validate API and Console URLs before proceeding
-    if (-not (Test-ValidUrl -Url $ApiUrl -Name "API")) {
+    # Validate URLs before proceeding
+    if (-not (Test-ValidUrl -Url $DownloadUrl -Name "Download")) {
         Write-Host ""
-        Write-Host "Installation aborted due to invalid API URL." -ForegroundColor Red
+        Write-Host "Installation aborted due to invalid Download URL." -ForegroundColor Red
         exit 1
     }
-    if (-not (Test-ValidUrl -Url $ConsoleUrl -Name "Console")) {
-        Write-Host ""
-        Write-Host "Installation aborted due to invalid Console URL." -ForegroundColor Red
-        exit 1
-    }
-
-    # Check for existing config
-    $existingConfig = Test-ExistingConfig
-    if ($existingConfig) {
-        Write-Status "Found existing BlueBear configuration"
-        # Safely truncate API key for display (handle short/empty keys)
-        $apiKeyPreview = if ($existingConfig.developer_api_key.Length -gt 8) {
-            "$($existingConfig.developer_api_key.Substring(0, 8))..."
-        } elseif ($existingConfig.developer_api_key.Length -gt 0) {
-            "$($existingConfig.developer_api_key.Substring(0, [Math]::Min(4, $existingConfig.developer_api_key.Length)))***"
-        } else {
-            "(empty)"
-        }
-        Write-Detail "API Key: $apiKeyPreview"
-        Write-Detail "Endpoint: $($existingConfig.api_endpoint)"
-        Write-Host ""
-        Write-Host "    Existing credentials will be preserved."
-        Write-Host ""
-    }
-
-    Write-Status "BlueBear Authentication"
-    Write-Host ""
-    Write-Host "    Quick authentication required for download..."
-    Write-Host ""
-
-    # Start OAuth device flow
-    $authData = Start-DeviceAuth
-    if (-not $authData) {
-        Write-Status "Failed to start authentication" -Type "Error"
-        Write-Host ""
-        Write-Host "Please try again, or manually configure:" -ForegroundColor Yellow
-        Write-Host "  1. Visit: $ConsoleUrl/settings"
-        Write-Host "  2. Copy your API key"
-        Write-Host "  3. After install, run: bluebear configure --api-key YOUR_KEY"
-        exit 1
-    }
-
-    # Wait for user to authenticate
-    # Use PowerShell 5.1 compatible syntax (no ?? operator)
-    $expiresIn = if ($authData.expires_in) { $authData.expires_in } else { 300 }
-    $interval = if ($authData.interval) { $authData.interval } else { 5 }
-
-    $jwtToken = Wait-ForAuth `
-        -DeviceCode $authData.device_code `
-        -UserCode $authData.user_code `
-        -VerificationUri $authData.verification_uri `
-        -ExpiresIn $expiresIn `
-        -Interval $interval
-
-    if (-not $jwtToken) {
-        Write-Status "Authentication failed or timed out" -Type "Error"
-        exit 1
-    }
-
-    # Create API key if we don't have existing credentials
-    if (-not $existingConfig) {
-        New-ApiKey -JwtToken $jwtToken | Out-Null
-    } else {
-        Write-Status "Preserving existing API key configuration"
-    }
-
-    Write-Host ""
 
     # Create installation directory
     if (-not (Test-Path $InstallDir)) {
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     }
 
-    # DEN-750: Download single unified binary
-    if (-not (Get-BlueBearBinary -JwtToken $jwtToken)) {
+    # DEN-1017: Download binary (no auth needed for prod via CloudFront)
+    if (-not (Get-BlueBearBinary)) {
         Write-Status "Failed to download BlueBear binary" -Type "Error"
         exit 1
     }
@@ -835,20 +586,17 @@ function Install-BlueBear {
     # Save installation info
     Save-InstallInfo
 
-    # Install PowerShell completion
-    $bluebearExe = Join-Path $InstallDir $exeName
-    Install-PowerShellCompletion -ExePath $bluebearExe -ExeBaseName $exeBaseName
-
-    # DEN-750: Run bluebear enable to set up the daemon service
     # Determine executable name based on environment
     $exeName = if ($Environment) { "bluebear-$Environment.exe" } else { "bluebear.exe" }
     $exeBaseName = if ($Environment) { "bluebear-$Environment" } else { "bluebear" }
-
-    # DEN-842: Run bluebear enable which handles daemon setup and history
-    # ingestion prompt. Do not pipe output so stdin is inherited for the
-    # interactive Y/n prompt in the Go binary.
-    Write-Status "Setting up BlueBear daemon..."
     $bluebearExe = Join-Path $InstallDir $exeName
+
+    # Install PowerShell completion
+    Install-PowerShellCompletion -ExePath $bluebearExe -ExeBaseName $exeBaseName
+
+    # DEN-1017: The Go binary handles all auth — installer just calls `enable`.
+    # DEN-842: Do not pipe output so stdin is inherited for interactive prompts.
+    Write-Status "Running $exeBaseName enable..."
     try {
         & $bluebearExe enable
         Write-Status "BlueBear daemon enabled and started" -Type "Success"
