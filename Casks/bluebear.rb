@@ -29,7 +29,7 @@ cask "bluebear" do
   # Production (BLUEBEAR_ENVIRONMENT empty): GitHub Release assets (public, no auth).
   # Dev/PR: GitHub Actions artifacts (zip-wrapped, requires HOMEBREW_GITHUB_API_TOKEN).
   if BLUEBEAR_ENVIRONMENT.empty?
-    sha256 "bc2471bdad58e12f90d2fa965fe18468e7faee981cfec21cd852d5c03f94ead0"
+    sha256 "e482b7bffed54b3a800e248746d6701f6d17c5815a8cd117d1ce685882ad10cc"
     url "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.1/bluebear-macos-arm64.tar.gz"
   else
     sha256 :no_check
