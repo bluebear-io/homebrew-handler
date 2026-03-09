@@ -23,14 +23,14 @@ BLUEBEAR_ENV_SUFFIX = BLUEBEAR_ENVIRONMENT.empty? ? "" : "-#{BLUEBEAR_ENVIRONMEN
 BINARY_PREFIX = "bluebear"
 
 cask "bluebear" do
-  version "0.6.1"
+  version "0.6.2"
 
   # DEN-1017: Distribution source depends on environment.
   # Production (BLUEBEAR_ENVIRONMENT empty): GitHub Release assets (public, no auth).
   # Dev/PR: GitHub Actions artifacts (zip-wrapped, requires HOMEBREW_GITHUB_API_TOKEN).
   if BLUEBEAR_ENVIRONMENT.empty?
-    sha256 "e482b7bffed54b3a800e248746d6701f6d17c5815a8cd117d1ce685882ad10cc"
-    url "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.1/bluebear-macos-arm64.tar.gz"
+    sha256 "388a3df8a511d49b0ddcc0f7ba8db1a98a24e691c7499c8400769e03e70512b4"
+    url "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.2/bluebear-macos-arm64.tar.gz"
   else
     sha256 :no_check
     url "",
