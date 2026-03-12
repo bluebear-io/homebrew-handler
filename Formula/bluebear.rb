@@ -17,7 +17,7 @@ BINARY_PREFIX = "bluebear"
 class Bluebear < Formula
   desc "BlueBear - Secure AI coding agent governance for Claude, Codex, Copilot, and more"
   homepage "https://bluebearsecurity.io"
-  version "0.6.2"
+  version "0.6.3"
 
   # Platform-specific configuration (macOS and Linux)
   if OS.mac?
@@ -37,30 +37,31 @@ class Bluebear < Formula
   # SHA256 checksums for download verification.
   # Production: verified against GitHub Release downloads (stable, content-addressable).
   # Dev/PR: sha256 omitted — GitHub Actions re-packages artifact ZIPs on each download,
-  # producing non-deterministic hashes. Downloads are authenticated via HOMEBREW_GITHUB_API_TOKEN.
+  # producing non-deterministic hashes. Downloads are authenticated via gh CLI or HOMEBREW_GITHUB_API_TOKEN.
   # Note: `sha256 :no_check` is only supported for Casks, not Formulas (Homebrew/brew#17175).
   # Omitting sha256 entirely lets Homebrew skip verification for dev/PR artifacts.
   if BLUEBEAR_ENVIRONMENT.empty?
     if OS.mac?
       if Hardware::CPU.arm?
-        sha256 "388a3df8a511d49b0ddcc0f7ba8db1a98a24e691c7499c8400769e03e70512b4"
+        sha256 "caa107164a272caac5101371a93da19c5459c2a175016e3caf1c3047c8cf5c5b"
       else
-        sha256 "f3607de173cb92f768cc9767413619f36871f0760ee189d3fe328b03603eff33"
+        sha256 "b93ec49feae3728f8d8ffe9fbd00466257e45c5ba34c0f848b4133edb4bbdc52"
       end
     else
       if Hardware::CPU.arm?
-        sha256 "124810ca1b91c849292104412864399ed249dbe8dceb8e9476deee91de8a72b3"
+        sha256 "7b9fbada9e6f2d142fbd9d059978f76c91b1497deb6366ad9407681275b7db50"
       else
-        sha256 "d2253aa1611383e2ecc8fe6f3fa8caaaee872e67390ff73a90445190775e1d3d"
+        sha256 "319d4d96fd887424aa00ec220f6fc86f94a7da8f1bbc8fe27daea612e0894418"
       end
     end
   end
 
   # DEN-1017: Distribution source depends on environment.
   # Production (BLUEBEAR_ENVIRONMENT empty): GitHub Release assets (public, no auth).
-  # Dev/PR: GitHub Actions artifacts (zip-wrapped, requires HOMEBREW_GITHUB_API_TOKEN).
+  # Dev/PR: GitHub Actions artifacts (zip-wrapped, requires GitHub auth).
+  # DEN-1287: Falls back to `gh auth token` when HOMEBREW_GITHUB_API_TOKEN is not set.
   if BLUEBEAR_ENVIRONMENT.empty?
-    url "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.2/bluebear-#{platform_suffix}.tar.gz"
+    url "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.3/bluebear-#{platform_suffix}.tar.gz"
   else
     # Dev/PR: per-platform artifact IDs, zip-wrapped by GitHub Actions.
     # Platforms with empty artifact IDs are omitted (e.g., linux-arm64 when ARM64 build is skipped).
@@ -74,8 +75,11 @@ class Bluebear < Formula
     artifact_id = artifact_ids[platform_suffix]
     odie "No binary available for platform #{platform_suffix} in this build" if artifact_id.nil?
 
+    github_token = ENV["HOMEBREW_GITHUB_API_TOKEN"] || `gh auth token 2>/dev/null`.strip
+    odie "GitHub auth token not found. Set HOMEBREW_GITHUB_API_TOKEN or run 'gh auth login'" if github_token.empty?
+
     url "https://api.github.com/repos/Blue-Bear-Security/blueden/actions/artifacts/#{artifact_id}/zip",
-        header: "Authorization: Bearer #{ENV.fetch("HOMEBREW_GITHUB_API_TOKEN")}"
+        header: "Authorization: Bearer #{github_token}"
   end
 
   def install
