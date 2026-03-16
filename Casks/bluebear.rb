@@ -30,7 +30,7 @@ cask "bluebear" do
   # Dev/PR: GitHub Actions artifacts (zip-wrapped, requires GitHub auth).
   # DEN-1287: Falls back to `gh auth token` when HOMEBREW_GITHUB_API_TOKEN is not set.
   if BLUEBEAR_ENVIRONMENT.empty?
-    sha256 "35c02319cdc020d33c85f3c58431f8486e8cf4d96eec1f7873b73ec28f208664"
+    sha256 "0618b7ff134624b6f29dc3bd5d263ed3c3d264621338fe817835de5135a23e57"
     url "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.5/bluebear-macos-arm64.tar.gz"
   else
     sha256 :no_check
