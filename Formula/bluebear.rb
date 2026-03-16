@@ -43,15 +43,15 @@ class Bluebear < Formula
   if BLUEBEAR_ENVIRONMENT.empty?
     if OS.mac?
       if Hardware::CPU.arm?
-        sha256 "0618b7ff134624b6f29dc3bd5d263ed3c3d264621338fe817835de5135a23e57"
+        sha256 "57cea685b22a9b910cc6d1f5fe1dfb7298391292802990af5306699103cc1fd9"
       else
-        sha256 "1234c8cab38ee078fa28a2d8b4e47c024e7891a4bb947d98c6b6541cb3cafe1a"
+        sha256 "12105a1fcbd19b805628489bf6b26ad22c14680e84598b4c3ebe88d9ecc04db3"
       end
     else
       if Hardware::CPU.arm?
-        sha256 "d4dda7de10fdba0c84677949ac759e6fa629f7a4281dcf8ad7bb12103546f399"
+        sha256 "70595fa8b4c13fcfa2da6a51f8ea91979a88115d0bf5ae862da9144e5ca89c51"
       else
-        sha256 "156f65dbe798440d801d1aae211fe40d3e5fad415194bebea7121f6ba89563df"
+        sha256 "4431d3d071d0272ff2aaf91ed5bfd314dba6a1f1c3aaac8627c737ae2be96ddf"
       end
     end
   end
