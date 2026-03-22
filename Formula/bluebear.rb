@@ -17,7 +17,7 @@ BINARY_PREFIX = "bluebear"
 class Bluebear < Formula
   desc "BlueBear - Secure AI coding agent governance for Claude, Codex, Copilot, and more"
   homepage "https://bluebearsecurity.io"
-  version "0.6.7"
+  version "0.6.8"
 
   # Platform-specific configuration (macOS and Linux)
   if OS.mac?
@@ -43,15 +43,15 @@ class Bluebear < Formula
   if BLUEBEAR_ENVIRONMENT.empty?
     if OS.mac?
       if Hardware::CPU.arm?
-        sha256 "7d23dfd4eeda112ca0c551532d2d4a7221b685989f422330f213d8e64764f090"
+        sha256 "9cb0753e03f3ce8d321f6391881a3bdbbcd2616272c8c931bc3fb9bb2ef2d413"
       else
-        sha256 "d2516b391837d8e212f10b736512a5bebf8c8579f3255b8d8edaf4a8788d8672"
+        sha256 "f845d1dcbd9c5324b35152e6f78a5ef5c237b2bdbba9b0b41e98752dae658c6c"
       end
     else
       if Hardware::CPU.arm?
-        sha256 "797af6296d62784bf79662b9b75f4eba08f713ac9e841717c3ba05aeefe761da"
+        sha256 "be092615320c9538bc840ce99bc3efb8d574b81f63da7ba5449beae9bc1b0354"
       else
-        sha256 "c610e695a8f4fa728fbc01a267dfab1fc8ab89d07fc968c095b0390a4dab4e39"
+        sha256 "f3fc1952a719ecfcc3cde2583d404b1bb494118e374b0b9c33d07cff9b74ddb5"
       end
     end
   end
@@ -61,7 +61,7 @@ class Bluebear < Formula
   # Dev/PR: GitHub Actions artifacts (zip-wrapped, requires GitHub auth).
   # DEN-1287: Falls back to `gh auth token` when HOMEBREW_GITHUB_API_TOKEN is not set.
   if BLUEBEAR_ENVIRONMENT.empty?
-    url "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.7/bluebear-#{platform_suffix}.tar.gz"
+    url "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.8/bluebear-#{platform_suffix}.tar.gz"
   else
     # Dev/PR: per-platform artifact IDs, zip-wrapped by GitHub Actions.
     # Platforms with empty artifact IDs are omitted (e.g., linux-arm64 when ARM64 build is skipped).
@@ -167,10 +167,7 @@ class Bluebear < Formula
 
         \e[33mAuthentication may not have completed.\e[0m
 
-        To configure manually:
-          1. Visit: https://app.bluebearsecurity.io/admin/devices
-          2. Copy your API key
-          3. Run: #{BINARY_PREFIX} configure --api-key YOUR_KEY
+        To authenticate, run: #{BINARY_PREFIX} enable
 
         Documentation: https://app.bluebearsecurity.io/docs
 

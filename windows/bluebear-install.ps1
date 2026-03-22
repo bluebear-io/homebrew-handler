@@ -18,7 +18,6 @@
 
 param(
     [string]$ApiUrl = $env:BLUEDEN_API_URL,
-    [string]$ConsoleUrl = $env:BLUEDEN_CONSOLE_URL,
     [string]$DownloadUrl = $env:BLUEBEAR_DOWNLOAD_URL,
     [string]$ArtifactId = $env:BLUEBEAR_ARTIFACT_ID,
     [string]$InstallDir = $null,
@@ -32,10 +31,9 @@ $ProgressPreference = "SilentlyContinue"  # Speeds up Invoke-WebRequest
 
 # Default URLs
 if (-not $ApiUrl) { $ApiUrl = "https://api.bluebearsecurity.io" }
-if (-not $ConsoleUrl) { $ConsoleUrl = "https://app.bluebearsecurity.io" }
 # DEN-1017: Download URL defaults to GitHub Release URL for prod.
 # Dev/PR uses artifact download via gh CLI (when ArtifactId is set).
-if (-not $DownloadUrl) { $DownloadUrl = "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.7" }
+if (-not $DownloadUrl) { $DownloadUrl = "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.8" }
 
 # Installation paths
 if (-not $InstallDir) {
@@ -44,7 +42,7 @@ if (-not $InstallDir) {
 $BinDir = Join-Path $InstallDir "bin"
 
 # Version - will be replaced by CI/CD (e.g., 0.0.478 for PR, 1.2.3 for prod)
-$Version = "0.6.7"
+$Version = "0.6.8"
 
 # Detect PR version from API URL if not replaced by CI/CD
 if ($Version -eq "__VERSION__") {

@@ -23,15 +23,15 @@ BLUEBEAR_ENV_SUFFIX = BLUEBEAR_ENVIRONMENT.empty? ? "" : "-#{BLUEBEAR_ENVIRONMEN
 BINARY_PREFIX = "bluebear"
 
 cask "bluebear" do
-  version "0.6.7"
+  version "0.6.8"
 
   # DEN-1017: Distribution source depends on environment.
   # Production (BLUEBEAR_ENVIRONMENT empty): GitHub Release assets (public, no auth).
   # Dev/PR: GitHub Actions artifacts (zip-wrapped, requires GitHub auth).
   # DEN-1287: Falls back to `gh auth token` when HOMEBREW_GITHUB_API_TOKEN is not set.
   if BLUEBEAR_ENVIRONMENT.empty?
-    sha256 "7d23dfd4eeda112ca0c551532d2d4a7221b685989f422330f213d8e64764f090"
-    url "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.7/bluebear-macos-arm64.tar.gz"
+    sha256 "9cb0753e03f3ce8d321f6391881a3bdbbcd2616272c8c931bc3fb9bb2ef2d413"
+    url "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.8/bluebear-macos-arm64.tar.gz"
   else
     sha256 :no_check
     github_token = ENV["HOMEBREW_GITHUB_API_TOKEN"] || `gh auth token 2>/dev/null`.strip
