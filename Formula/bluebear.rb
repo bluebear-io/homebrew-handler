@@ -17,7 +17,7 @@ BINARY_PREFIX = "bluebear"
 class Bluebear < Formula
   desc "BlueBear - Secure AI coding agent governance for Claude, Codex, Copilot, and more"
   homepage "https://bluebearsecurity.io"
-  version "0.6.20"
+  version "0.6.21"
 
   # Platform-specific configuration (macOS and Linux)
   if OS.mac?
@@ -43,15 +43,15 @@ class Bluebear < Formula
   if BLUEBEAR_ENVIRONMENT.empty?
     if OS.mac?
       if Hardware::CPU.arm?
-        sha256 "9234ac8978dc78a55bf48e0142fc32a3906531a60b35d9b68c640752ecf3f69a"
+        sha256 "3db59f56d2decdce6fdb6fd115376d78d84be0292849c5556df673daeb756557"
       else
-        sha256 "9affe8cc71ece629e3dc8e410ee2c076718a303bd032741f26af111890e25a49"
+        sha256 "9bbe0b4cf3d65d3315ff53265705398c2d31908a4553a9c9f184d056dff0c611"
       end
     else
       if Hardware::CPU.arm?
-        sha256 "fac29553b74559516af43fbef794e5f1c5df49375be9725c3a9816f8388de6b9"
+        sha256 "c223fc80c24ccced110cda94f35beb892f43ed4673500ae090db24253ea9d969"
       else
-        sha256 "92f7ec36ec334c5bc981a064000abc73e69f11f3949c3fa40a943f7bacd65afb"
+        sha256 "2e68bda7e623f977968cac21adee03d722efc8c9f29314db7bf07dc2504f5fb5"
       end
     end
   end
@@ -61,7 +61,7 @@ class Bluebear < Formula
   # Dev/PR: GitHub Actions artifacts (zip-wrapped, requires GitHub auth).
   # DEN-1287: Falls back to `gh auth token` when HOMEBREW_GITHUB_API_TOKEN is not set.
   if BLUEBEAR_ENVIRONMENT.empty?
-    url "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.20/bluebear-#{platform_suffix}.tar.gz"
+    url "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.21/bluebear-#{platform_suffix}.tar.gz"
   else
     # Dev/PR: per-platform artifact IDs, zip-wrapped by GitHub Actions.
     # Platforms with empty artifact IDs are omitted (e.g., linux-arm64 when ARM64 build is skipped).
