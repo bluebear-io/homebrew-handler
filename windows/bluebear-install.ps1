@@ -33,7 +33,7 @@ $ProgressPreference = "SilentlyContinue"  # Speeds up Invoke-WebRequest
 if (-not $ApiUrl) { $ApiUrl = "https://api.bluebearsecurity.io" }
 # DEN-1017: Download URL defaults to GitHub Release URL for prod.
 # Dev/PR uses artifact download via gh CLI (when ArtifactId is set).
-if (-not $DownloadUrl) { $DownloadUrl = "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.25" }
+if (-not $DownloadUrl) { $DownloadUrl = "https://github.com/Blue-Bear-Security/homebrew-handler/releases/download/handler-v0.6.26" }
 
 # Installation paths
 if (-not $InstallDir) {
@@ -42,7 +42,7 @@ if (-not $InstallDir) {
 $BinDir = Join-Path $InstallDir "bin"
 
 # Version - will be replaced by CI/CD (e.g., 0.0.478 for PR, 1.2.3 for prod)
-$Version = "0.6.25"
+$Version = "0.6.26"
 
 # Detect PR version from API URL if not replaced by CI/CD
 if ($Version -eq "__VERSION__") {
